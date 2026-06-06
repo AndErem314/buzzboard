@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# BuzzBoard runtime
+inbox/*
+!inbox/.gitkeep
+archive/*
+!archive/.gitkeep
+pipeline/
+
+# Obsidian
+.vault/
+
+# Secrets
+.env
+.env.local
+
+# Misc
+*.log
+tmp/

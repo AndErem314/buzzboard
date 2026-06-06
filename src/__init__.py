@@ -1,0 +1,1 @@
+"""BuzzBoard — multi-agent beehive inspection assistant."""
