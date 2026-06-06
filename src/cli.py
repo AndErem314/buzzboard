@@ -21,6 +21,7 @@ from .agents.extractor import ExtractorAgent
 from .agents.storage import StorageAgent
 from .orchestrator import Orchestrator
 from .db.kanban import KanbanBoard
+from . import config as cfg
 
 
 @click.group()
@@ -87,7 +88,7 @@ def transcribe(
 @click.option("--skip-transcribe", is_flag=True, help="Skip transcription (use existing raw JSON)")
 @click.option(
     "--obsidian-vault", default=None, type=click.Path(path_type=Path),
-    help="Path to Obsidian vault for Storage agent"
+    help="Path to Obsidian vault for Storage agent (default: $BUZZBOARD_OBSIDIAN_VAULT)"
 )
 def process(
     audio_file: Path,
@@ -103,6 +104,10 @@ def process(
 
     Pipeline:  Transcriber → Editor → Extractor → Storage
     """
+    # Resolve Obsidian vault: CLI arg > env var
+    if obsidian_vault is None:
+        obsidian_vault = cfg.OBSIDIAN_VAULT
+
     click.echo(f"🐝 BuzzBoard processing: {audio_file.name}\n")
 
     # ── Stage 1: Transcribe ─────────────────────────────────────────────
@@ -196,7 +201,7 @@ def process(
     help="Path to Obsidian vault for Storage agent"
 )
 @click.option(
-    "--ollama-model", default="llama3.1:8b", help="Ollama model"
+    "--ollama-model", default=None, help="Ollama model"
 )
 @click.option(
     "--interval", default=5.0, help="Polling interval in seconds (for watch mode)"
@@ -204,7 +209,7 @@ def process(
 @click.option("--once", is_flag=True, help="Process all pending files, then exit (default: watch forever)")
 def watch(
     obsidian_vault: Path | None,
-    ollama_model: str,
+    ollama_model: str | None,
     interval: float,
     once: bool,
 ):
@@ -213,11 +218,17 @@ def watch(
     Without --once: runs forever, polling every N seconds.
     With --once: processes all pending files, reports results, exits.
     """
+    # Resolve from config if not specified
+    if obsidian_vault is None:
+        obsidian_vault = cfg.OBSIDIAN_VAULT
+    if ollama_model is None:
+        ollama_model = cfg.OLLAMA_MODEL
+
     orch = Orchestrator(
-        inbox_dir="inbox",
+        inbox_dir=str(cfg.INBOX_DIR),
         obsidian_vault=obsidian_vault,
         ollama_model=ollama_model,
-        pipeline_dir="pipeline",
+        pipeline_dir=str(cfg.PIPELINE_DIR),
     )
 
     if once:
@@ -227,9 +238,11 @@ def watch(
 
 
 @cli.command()
-@click.option("--db", default="pipeline/kanban.db", help="Path to Kanban database")
-def board(db: str):
+@click.option("--db", default=None, help="Path to Kanban database")
+def board(db: str | None):
     """Show the Kanban board with all tasks and events."""
+    if db is None:
+        db = str(cfg.KANBAN_DB)
     board_obj = KanbanBoard(db)
     print(board_obj.print_board())
 
@@ -250,9 +263,11 @@ def board(db: str):
 
 @cli.command()
 @click.argument("task_id")
-@click.option("--db", default="pipeline/kanban.db", help="Path to Kanban database")
-def events(task_id: str, db: str):
+@click.option("--db", default=None, help="Path to Kanban database")
+def events(task_id: str, db: str | None):
     """Show the event log for a specific task."""
+    if db is None:
+        db = str(cfg.KANBAN_DB)
     board_obj = KanbanBoard(db)
     task = board_obj.get_task(task_id)
     if not task:
@@ -287,10 +302,23 @@ def status():
     click.echo("  Phase 3 complete — full pipeline + Kanban + file watcher.")
     click.echo()
     click.echo("  Quick start:")
-    click.echo("    buzzboard process inbox/H07_2026-06-06.m4a --obsidian-vault ~/Documents/Obsidian")
-    click.echo("    buzzboard watch --once --obsidian-vault ~/Documents/Obsidian")
+    click.echo("    buzzboard process inbox/H07_2026-06-06.m4a")
+    click.echo("    buzzboard watch --once")
     click.echo("    buzzboard board")
+    click.echo("    buzzboard config")
     click.echo()
+
+
+@cli.command(name="config")
+def config_cmd():
+    """Show current BuzzBoard configuration."""
+    click.echo(cfg.print_config())
+    click.echo()
+    env_file = Path(".env")
+    if env_file.exists():
+        click.echo(f"  📄 .env file: {env_file.absolute()}")
+    else:
+        click.echo(f"  💡 Create a .env file to customize (see .env.example)")
 
 
 if __name__ == "__main__":
