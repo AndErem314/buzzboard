@@ -321,5 +321,21 @@ def config_cmd():
         click.echo(f"  💡 Create a .env file to customize (see .env.example)")
 
 
+@cli.command()
+@click.option("--host", default="0.0.0.0", help="Host to bind to")
+@click.option("--port", default=8099, help="Port to listen on")
+@click.option("--reload", is_flag=True, help="Enable auto-reload (dev mode)")
+def dashboard(host: str, port: int, reload: bool):
+    """Start the web dashboard (FastAPI + Uvicorn).
+
+    Opens http://localhost:8099 — Kanban board with live updates.
+    Press Ctrl+C to stop.
+    """
+    from .dashboard.server import run_server
+    click.echo(f"🐝 BuzzBoard Dashboard → http://{host}:{port}")
+    click.echo("   Press Ctrl+C to stop.\n")
+    run_server(host=host, port=port, reload=reload)
+
+
 if __name__ == "__main__":
     cli()

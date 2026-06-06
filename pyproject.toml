@@ -33,6 +33,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
+    "httpx>=0.27",
 ]
 ollama = [
     "ollama>=0.4",
@@ -40,8 +41,12 @@ ollama = [
 whisper = [
     "openai-whisper>=20231117",
 ]
+dashboard = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+]
 all = [
-    "buzzboard[dev,ollama,whisper]",
+    "buzzboard[dev,ollama,whisper,dashboard]",
 ]
 
 [project.scripts]
