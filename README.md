@@ -4,7 +4,7 @@
 
 Drop a voice memo from your hive inspection into `inbox/`. BuzzBoard's agent pipeline transcribes it, structures the content, extracts key data points, and writes a formatted note to your Obsidian vault — organized by hive.
 
-> **Status:** 🚧 Phase 1 — scaffold + transcription working. Editor, Extractor, Storage, and Kanban dashboard coming in Phases 2–6.
+> **Status:** ✅ Phase 2 — full text pipeline (Transcriber + Editor + Extractor) working with local LLMs. Storage, Kanban dashboard, and file watcher coming in Phases 3–7.
 
 ---
 
@@ -52,8 +52,8 @@ Runs on **16 GB RAM** with quantized models. Native Apple Silicon support via Ne
 | Agent | Phase | Does | Model |
 |---|---|---|---|
 | **Transcriber** | ✅ Phase 1 | Voice → raw text | Whisper (base/small) |
-| **Editor** | 🔜 Phase 2 | Raw text → structured note | Ollama (llama3.2:3b) |
-| **Extractor** | 🔜 Phase 2 | Note → structured data | Ollama (llama3.2:3b) |
+| **Editor** | ✅ Phase 2 | Raw text → structured note | Ollama (llama3.1:8b / llama3.2:3b) |
+| **Extractor** | ✅ Phase 2 | Note → structured data | Ollama (llama3.1:8b / llama3.2:3b) |
 | **Storage** | 🔜 Phase 3 | Data → Obsidian markdown | — |
 | **Orchestrator** | 🔜 Phase 3 | File watcher + Kanban routing | — |
 | **Trend** | 🔜 Phase 7 | Pattern detection + alerts | Ollama |
