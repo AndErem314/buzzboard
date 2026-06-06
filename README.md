@@ -25,27 +25,54 @@ Each agent reads a JSON artifact from the previous agent and writes its output a
 ## Quick Start
 
 ```bash
-# Install
+# 1. Clone + install
 git clone https://github.com/AndErem314/buzzboard.git
 cd buzzboard
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[whisper]"
 
-# Transcribe a voice memo
-buzzboard transcribe inbox/H07_2026-06-06.m4a
+# 2. Configure (copy + edit)
+cp .env.example .env
+# Edit BUZZBOARD_OBSIDIAN_VAULT to point to your Obsidian vault
 
-# Run the full pipeline (coming in Phase 2+)
+# 3. Verify
+buzzboard config
+
+# 4. Process a voice memo
 buzzboard process inbox/H07_2026-06-06.m4a
+
+# 5. Or watch inbox/ and auto-process everything
+buzzboard watch --once
 ```
+
+## Configuration
+
+All paths and models are set via a `.env` file (or environment variables).  
+None are committed to git — each user creates their own.
+
+| Variable | Default | Description |
+|---|---|---|
+| `BUZZBOARD_INBOX_DIR` | `inbox` | Where voice memos land |
+| `BUZZBOARD_PIPELINE_DIR` | `pipeline` | JSON artifacts between agents |
+| `BUZZBOARD_ARCHIVE_DIR` | `archive` | Processed audio moved here |
+| `BUZZBOARD_OBSIDIAN_VAULT` | *(required)* | Path to your Obsidian vault |
+| `BUZZBOARD_KANBAN_DB` | `pipeline/kanban.db` | SQLite Kanban database |
+| `BUZZBOARD_OLLAMA_MODEL` | `llama3.1:8b` | LLM for Editor + Extractor |
+| `BUZZBOARD_OLLAMA_HOST` | `http://localhost:11434` | Ollama API endpoint |
+| `BUZZBOARD_WHISPER_MODEL` | `base` | Whisper model size |
+| `BUZZBOARD_WHISPER_BACKEND` | `whisper` | `whisper` or `whisper-cpp` |
+
+See `.env.example` for the full template with comments.
 
 ### Requirements
 
 - Python 3.11+
+- [Ollama](https://ollama.com) with a model pulled (`ollama pull llama3.1:8b`)
 - [Whisper](https://github.com/openai/whisper) (for transcription)
-- [Ollama](https://ollama.com) (for LLM agents — Phase 2+)
-- [Obsidian](https://obsidian.md) (for note storage — Phase 3+)
+- [Obsidian](https://obsidian.md) (for note storage)
 
-Runs on **16 GB RAM** with quantized models. Native Apple Silicon support via Neural Engine.
+Runs on **16 GB RAM** with quantized models (`llama3.2:3b`).  
+Native Apple Silicon support via Neural Engine.
 
 ## Agents
 
