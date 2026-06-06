@@ -2,9 +2,11 @@
 BuzzBoard CLI — the single entry point for the multi-agent pipeline.
 
 Usage:
-    buzzboard process inbox/H07_2026-06-06.m4a     # Run full pipeline
-    buzzboard transcribe inbox/H07_2026-06-06.m4a   # Transcribe only
-    buzzboard status                                 # Show pipeline status
+    buzzboard transcribe inbox/H07_2026-06-06.m4a    # Voice → text only
+    buzzboard process inbox/H07_2026-06-06.m4a        # Full pipeline
+    buzzboard watch                                     # Auto-process inbox/
+    buzzboard status                                    # Show Kanban board
+    buzzboard board                                     # Kanban board detail
 """
 
 from __future__ import annotations
@@ -16,6 +18,9 @@ import click
 from .agents.transcriber import TranscriberAgent
 from .agents.editor import EditorAgent
 from .agents.extractor import ExtractorAgent
+from .agents.storage import StorageAgent
+from .orchestrator import Orchestrator
+from .db.kanban import KanbanBoard
 
 
 @click.group()
@@ -80,8 +85,10 @@ def transcribe(
     help="Ollama API host"
 )
 @click.option("--skip-transcribe", is_flag=True, help="Skip transcription (use existing raw JSON)")
-@click.option("--obsidian-vault", default=None, type=click.Path(path_type=Path),
-              help="Path to Obsidian vault (for Phase 3 storage agent)")
+@click.option(
+    "--obsidian-vault", default=None, type=click.Path(path_type=Path),
+    help="Path to Obsidian vault for Storage agent"
+)
 def process(
     audio_file: Path,
     backend: str,
@@ -94,7 +101,7 @@ def process(
 ):
     """Run the full BuzzBoard pipeline on a voice memo.
 
-    Pipeline:  Transcriber → Editor → Extractor → Storage (Phase 3)
+    Pipeline:  Transcriber → Editor → Extractor → Storage
     """
     click.echo(f"🐝 BuzzBoard processing: {audio_file.name}\n")
 
@@ -105,7 +112,7 @@ def process(
     click.echo()
 
     if skip_transcribe:
-        raw_path = audio_file  # user provided a RawTranscript JSON directly
+        raw_path = audio_file
         click.echo(f"  ⏭️  Skipping — using existing artifact: {raw_path}")
     else:
         transcriber = TranscriberAgent(
@@ -153,23 +160,122 @@ def process(
 
     # ── Stage 4: Storage ────────────────────────────────────────────────
     click.echo(f"\n{'─' * 50}")
-    click.echo("Stage 4/4:  Storage (Phase 3 — coming soon)")
+    click.echo("Stage 4/4:  Storage (Obsidian)")
     click.echo("─" * 50)
     click.echo()
+
     if obsidian_vault:
-        click.echo(f"  ⏳ Would write StructuredRecord to: {obsidian_vault}/Hives/")
+        try:
+            storage = StorageAgent(
+                obsidian_vault=obsidian_vault,
+                pipeline_dir=output_dir,
+            )
+            note_path = storage.process(record_path)
+            click.echo(f"  ✅ Wrote to Obsidian: {note_path}")
+        except (FileNotFoundError, RuntimeError) as e:
+            click.echo(f"❌ Storage failed: {e}", err=True)
+            raise SystemExit(1)
     else:
-        click.echo(f"  ⏳ Would write StructuredRecord to Obsidian vault")
-    click.echo(f"     Source: {record_path}")
+        click.echo("  ⏭️  Skipping — no Obsidian vault specified (use --obsidian-vault)")
 
     # ── Summary ─────────────────────────────────────────────────────────
     click.echo(f"\n{'═' * 50}")
-    click.echo(f"✅ Pipeline complete (3/4 stages active)")
+    click.echo(f"✅ Pipeline complete ({4 if obsidian_vault else 3}/4 stages)")
     click.echo(f"{'═' * 50}")
     click.echo(f"  Raw transcript:  {raw_path}")
     click.echo(f"  Cleaned note:    {cleaned_path}")
     click.echo(f"  Structured data: {record_path}")
+    if obsidian_vault:
+        click.echo(f"  Obsidian note:   {note_path}")
     click.echo()
+
+
+@cli.command()
+@click.option(
+    "--obsidian-vault", default=None, type=click.Path(path_type=Path),
+    help="Path to Obsidian vault for Storage agent"
+)
+@click.option(
+    "--ollama-model", default="llama3.1:8b", help="Ollama model"
+)
+@click.option(
+    "--interval", default=5.0, help="Polling interval in seconds (for watch mode)"
+)
+@click.option("--once", is_flag=True, help="Process all pending files, then exit (default: watch forever)")
+def watch(
+    obsidian_vault: Path | None,
+    ollama_model: str,
+    interval: float,
+    once: bool,
+):
+    """Watch inbox/ and auto-process new voice memos.
+
+    Without --once: runs forever, polling every N seconds.
+    With --once: processes all pending files, reports results, exits.
+    """
+    orch = Orchestrator(
+        inbox_dir="inbox",
+        obsidian_vault=obsidian_vault,
+        ollama_model=ollama_model,
+        pipeline_dir="pipeline",
+    )
+
+    if once:
+        orch.run_once()
+    else:
+        orch.watch(poll_interval=interval)
+
+
+@cli.command()
+@click.option("--db", default="pipeline/kanban.db", help="Path to Kanban database")
+def board(db: str):
+    """Show the Kanban board with all tasks and events."""
+    board_obj = KanbanBoard(db)
+    print(board_obj.print_board())
+
+    # Show recent tasks with details
+    tasks = board_obj.get_all_tasks()
+    if tasks:
+        print(f"\n{'─' * 70}")
+        print(f"Recent tasks:")
+        print(f"{'─' * 70}")
+        for t in tasks[:10]:
+            status_icon = {"done": "✅", "failed": "❌", "inbox": "📥"}.get(t["stage"], "🔄")
+            print(f"  {status_icon} {t['id']:<20}  {t['stage']:<14}  "
+                  f"created: {t['created_at'][:19]}  "
+                  f"{'done: ' + t['completed_at'][:19] if t['completed_at'] else ''}")
+            if t.get("error"):
+                print(f"     ⚠️  {t['error'][:100]}")
+
+
+@cli.command()
+@click.argument("task_id")
+@click.option("--db", default="pipeline/kanban.db", help="Path to Kanban database")
+def events(task_id: str, db: str):
+    """Show the event log for a specific task."""
+    board_obj = KanbanBoard(db)
+    task = board_obj.get_task(task_id)
+    if not task:
+        click.echo(f"❌ Task not found: {task_id}")
+        raise SystemExit(1)
+
+    click.echo(f"Task: {task['id']}")
+    click.echo(f"  Hive: {task['hive_id']}  |  File: {task['audio_file']}")
+    click.echo(f"  Stage: {task['stage']}  |  Created: {task['created_at'][:19]}")
+    if task.get("error"):
+        click.echo(f"  Error: {task['error'][:200]}")
+    click.echo()
+
+    events_list = board_obj.get_events(task_id)
+    if not events_list:
+        click.echo("  No events logged.")
+        return
+
+    click.echo(f"{'Agent':<14} {'Action':<12} {'Duration':>8}  {'Time':<20}")
+    click.echo("-" * 60)
+    for ev in events_list:
+        dur = f"{ev['duration_ms']:.0f}ms" if ev.get("duration_ms") else "—"
+        click.echo(f"{ev['agent']:<14} {ev['action']:<12} {dur:>8}  {ev['created_at'][:19]}")
 
 
 @cli.command()
@@ -177,14 +283,14 @@ def status():
     """Show BuzzBoard pipeline status."""
     click.echo("🐝 BuzzBoard Status")
     click.echo("=" * 40)
-    click.echo("  Pipeline:  Transcriber ✅  |  Editor ✅  |  Extractor ✅  |  Storage ⏳")
-    click.echo("  Phase 2 complete — full text pipeline working.")
-    click.echo("  Phase 3 (Storage + Kanban) coming next.")
+    click.echo("  Pipeline:  Transcriber ✅  |  Editor ✅  |  Extractor ✅  |  Storage ✅")
+    click.echo("  Phase 3 complete — full pipeline + Kanban + file watcher.")
     click.echo()
-    click.echo("  Inbox:  check inbox/ for pending voice memos")
-    click.echo("  Pipeline artifacts:  pipeline/")
+    click.echo("  Quick start:")
+    click.echo("    buzzboard process inbox/H07_2026-06-06.m4a --obsidian-vault ~/Documents/Obsidian")
+    click.echo("    buzzboard watch --once --obsidian-vault ~/Documents/Obsidian")
+    click.echo("    buzzboard board")
     click.echo()
-    click.echo("  Quick test: buzzboard process inbox/H07_2026-06-06.m4a")
 
 
 if __name__ == "__main__":
