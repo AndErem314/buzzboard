@@ -62,7 +62,7 @@ KANBAN_DB = Path(os.getenv("BUZZBOARD_KANBAN_DB", "pipeline/kanban.db"))
 OLLAMA_MODEL = os.getenv("BUZZBOARD_OLLAMA_MODEL", "llama3.1:8b")
 OLLAMA_HOST = os.getenv("BUZZBOARD_OLLAMA_HOST", "http://localhost:11434")
 
-WHISPER_MODEL = os.getenv("BUZZBOARD_WHISPER_MODEL", "base")
+WHISPER_MODEL = os.getenv("BUZZBOARD_WHISPER_MODEL", "medium")
 WHISPER_BACKEND = os.getenv("BUZZBOARD_WHISPER_BACKEND", "whisper")
 
 
