@@ -40,12 +40,31 @@ class TranscriberAgent(BuzzAgent):
         self.whisper_cpp_path = whisper_cpp_path or "whisper"
         self._model = None  # lazy-loaded
 
-    def process(self, input_path: Path) -> Path:
-        """Transcribe audio → RawTranscript JSON."""
+    def process(self, input_path: Path) -> tuple[Path, bool]:  # type: ignore[override]
+        """
+        Transcribe audio → RawTranscript JSON.
+
+        Returns:
+            (output_path, is_multi_hive) — is_multi_hive=True when the
+            filename doesn't encode a specific hive_id, meaning the
+            transcript likely contains multiple hives and needs splitting.
+        """
         if not input_path.exists():
             raise FileNotFoundError(f"Audio file not found: {input_path}")
 
-        hive_id, insp_date = RawTranscript.parse_filename(input_path)
+        # Try to parse hive_id + date from filename.
+        # If it fails, the file is multi-hive and needs the splitter.
+        try:
+            hive_id, insp_date = RawTranscript.parse_filename(input_path)
+            is_multi_hive = False
+        except ValueError:
+            hive_id = "unknown"
+            # Use file modification time as fallback date
+            from datetime import datetime
+            mtime = input_path.stat().st_mtime
+            insp_date = datetime.fromtimestamp(mtime).date()
+            is_multi_hive = True
+
         raw_text = self._transcribe(input_path)
 
         record = RawTranscript(
@@ -68,11 +87,12 @@ class TranscriberAgent(BuzzAgent):
         # HACK — override hive_id since base doesn't know it yet
         # (this gets cleaned up when we add proper artifact tracking)
 
-        print(f"  📝 Transcriber: {input_path.name} → {output_path.name}")
+        tag = "🔀 [multi-hive]" if is_multi_hive else ""
+        print(f"  📝 Transcriber{tag}: {input_path.name} → {output_path.name}")
         print(f"     Hive: {hive_id}  |  Date: {insp_date}")
         print(f"     Chars: {len(raw_text)}  |  Hash: {content_hash}")
 
-        return output_path
+        return output_path, is_multi_hive
 
     # ── Backend implementations ─────────────────────────────────────────────
 

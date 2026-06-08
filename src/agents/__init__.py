@@ -1,1 +1,1 @@
-"""BuzzBoard agents — Transcriber, Editor, Extractor, Storage, Trend."""
+"""BuzzBoard agents — Transcriber, Splitter, Editor, Extractor, Storage, Trend."""

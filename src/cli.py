@@ -16,6 +16,7 @@ from pathlib import Path
 import click
 
 from .agents.transcriber import TranscriberAgent
+from .agents.splitter import HiveSplitterAgent
 from .agents.editor import EditorAgent
 from .agents.extractor import ExtractorAgent
 from .agents.storage import StorageAgent
@@ -24,6 +25,62 @@ from .orchestrator import Orchestrator
 from .db.kanban import KanbanBoard
 from .schema import TrendReport, read_artifact
 from . import config as cfg
+
+
+# ── Helper: Editor → Extractor → Storage for a single hive ───────────────
+
+def _run_editor_extractor_storage(
+    input_path: Path,
+    output_dir: Path,
+    ollama_model: str,
+    ollama_host: str,
+    obsidian_vault: Path | None,
+):
+    """Run Editor → Extractor → Storage on a single-hive transcript."""
+    # Stage: Editor
+    click.echo("Editor (LLM)")
+    click.echo()
+    try:
+        editor = EditorAgent(
+            ollama_model=ollama_model,
+            ollama_host=ollama_host,
+            pipeline_dir=output_dir,
+        )
+        cleaned_path = editor.process(input_path)
+    except RuntimeError as e:
+        click.echo(f"❌ Editor failed: {e}", err=True)
+        raise SystemExit(1)
+
+    # Stage: Extractor
+    click.echo(f"\nExtractor (LLM)")
+    click.echo()
+    try:
+        extractor = ExtractorAgent(
+            ollama_model=ollama_model,
+            ollama_host=ollama_host,
+            pipeline_dir=output_dir,
+        )
+        record_path = extractor.process(cleaned_path)
+    except RuntimeError as e:
+        click.echo(f"❌ Extractor failed: {e}", err=True)
+        raise SystemExit(1)
+
+    # Stage: Storage
+    click.echo(f"\nStorage (Obsidian)")
+    click.echo()
+    if obsidian_vault:
+        try:
+            storage = StorageAgent(
+                obsidian_vault=obsidian_vault,
+                pipeline_dir=output_dir,
+            )
+            note_path = storage.process(record_path)
+            click.echo(f"  ✅ Wrote to Obsidian: {note_path}")
+        except (FileNotFoundError, RuntimeError) as e:
+            click.echo(f"❌ Storage failed: {e}", err=True)
+            raise SystemExit(1)
+    else:
+        click.echo("  ⏭️  Skipping — no Obsidian vault specified")
 
 
 @click.group()
@@ -57,18 +114,21 @@ def transcribe(
     model: str,
     output_dir: Path,
 ):
-    """Transcribe a single voice memo to raw text."""
+    """Transcribe a single voice memo to raw text.
+
+    Works with both single-hive (H07_YYYY-MM-DD.m4a) and generic filenames.
+    Generic filenames are flagged as multi-hive — use 'buzzboard split' next.
+    """
     agent = TranscriberAgent(
         backend=backend,
         model=model,
         pipeline_dir=output_dir,
     )
     try:
-        output_path = agent.process(audio_file)
+        output_path, is_multi = agent.process(audio_file)
         click.echo(f"\n✅ Done: {output_path}")
-    except ValueError as e:
-        click.echo(f"❌ Filename error: {e}", err=True)
-        raise SystemExit(1)
+        if is_multi:
+            click.echo(f"🔀 Multi-hive detected — run 'buzzboard split {output_path}'")
     except FileNotFoundError as e:
         click.echo(f"❌ {e}", err=True)
         raise SystemExit(1)
@@ -104,7 +164,11 @@ def process(
 ):
     """Run the full BuzzBoard pipeline on a voice memo.
 
-    Pipeline:  Transcriber → Editor → Extractor → Storage
+    Pipeline:  Transcriber → [Splitter] → Editor → Extractor → Storage
+
+    For single-hive files (H07_YYYY-MM-DD.m4a), runs the classic 4-stage pipeline.
+    For multi-hive files (any other filename), automatically splits into per-hive
+    transcripts and processes each hive independently.
     """
     # Resolve Obsidian vault: CLI arg > env var
     if obsidian_vault is None:
@@ -114,86 +178,58 @@ def process(
 
     # ── Stage 1: Transcribe ─────────────────────────────────────────────
     click.echo("─" * 50)
-    click.echo("Stage 1/4:  Transcriber (Whisper)")
+    click.echo("Stage 1/?  Transcriber (Whisper)")
     click.echo("─" * 50)
     click.echo()
 
     if skip_transcribe:
         raw_path = audio_file
+        is_multi = True  # assume multi-hive if skipping transcription
         click.echo(f"  ⏭️  Skipping — using existing artifact: {raw_path}")
     else:
         transcriber = TranscriberAgent(
             backend=backend, model=whisper_model, pipeline_dir=output_dir
         )
         try:
-            raw_path = transcriber.process(audio_file)
-        except (ValueError, FileNotFoundError) as e:
+            raw_path, is_multi = transcriber.process(audio_file)
+        except FileNotFoundError as e:
             click.echo(f"❌ Transcriber failed: {e}", err=True)
             raise SystemExit(1)
 
-    # ── Stage 2: Editor ─────────────────────────────────────────────────
-    click.echo(f"\n{'─' * 50}")
-    click.echo("Stage 2/4:  Editor (LLM)")
-    click.echo("─" * 50)
-    click.echo()
+    # ── Branch: multi-hive or single-hive? ──────────────────────────────
+    if is_multi:
+        click.echo(f"\n{'─' * 50}")
+        click.echo("Stage 2/?  HiveSplitter (LLM)")
+        click.echo("─" * 50)
+        click.echo()
 
-    try:
-        editor = EditorAgent(
-            ollama_model=ollama_model,
-            ollama_host=ollama_host,
-            pipeline_dir=output_dir,
-        )
-        cleaned_path = editor.process(raw_path)
-    except RuntimeError as e:
-        click.echo(f"❌ Editor failed: {e}", err=True)
-        raise SystemExit(1)
-
-    # ── Stage 3: Extractor ──────────────────────────────────────────────
-    click.echo(f"\n{'─' * 50}")
-    click.echo("Stage 3/4:  Extractor (LLM)")
-    click.echo("─" * 50)
-    click.echo()
-
-    try:
-        extractor = ExtractorAgent(
-            ollama_model=ollama_model,
-            ollama_host=ollama_host,
-            pipeline_dir=output_dir,
-        )
-        record_path = extractor.process(cleaned_path)
-    except RuntimeError as e:
-        click.echo(f"❌ Extractor failed: {e}", err=True)
-        raise SystemExit(1)
-
-    # ── Stage 4: Storage ────────────────────────────────────────────────
-    click.echo(f"\n{'─' * 50}")
-    click.echo("Stage 4/4:  Storage (Obsidian)")
-    click.echo("─" * 50)
-    click.echo()
-
-    if obsidian_vault:
         try:
-            storage = StorageAgent(
-                obsidian_vault=obsidian_vault,
+            splitter = HiveSplitterAgent(
+                ollama_model=ollama_model,
+                ollama_host=ollama_host,
                 pipeline_dir=output_dir,
             )
-            note_path = storage.process(record_path)
-            click.echo(f"  ✅ Wrote to Obsidian: {note_path}")
-        except (FileNotFoundError, RuntimeError) as e:
-            click.echo(f"❌ Storage failed: {e}", err=True)
+            hive_paths = splitter.process(raw_path)
+        except RuntimeError as e:
+            click.echo(f"❌ HiveSplitter failed: {e}", err=True)
             raise SystemExit(1)
+
+        # Process each hive
+        for i, hive_path in enumerate(hive_paths):
+            click.echo(f"\n{'─' * 50}")
+            click.echo(f"Hive {i+1}/{len(hive_paths)}")
+            click.echo(f"{'─' * 50}")
+            _run_editor_extractor_storage(hive_path, output_dir, ollama_model,
+                                          ollama_host, obsidian_vault)
     else:
-        click.echo("  ⏭️  Skipping — no Obsidian vault specified (use --obsidian-vault)")
+        _run_editor_extractor_storage(raw_path, output_dir, ollama_model,
+                                      ollama_host, obsidian_vault)
 
     # ── Summary ─────────────────────────────────────────────────────────
     click.echo(f"\n{'═' * 50}")
-    click.echo(f"✅ Pipeline complete ({4 if obsidian_vault else 3}/4 stages)")
+    click.echo(f"✅ Pipeline complete")
     click.echo(f"{'═' * 50}")
     click.echo(f"  Raw transcript:  {raw_path}")
-    click.echo(f"  Cleaned note:    {cleaned_path}")
-    click.echo(f"  Structured data: {record_path}")
-    if obsidian_vault:
-        click.echo(f"  Obsidian note:   {note_path}")
     click.echo()
 
 
@@ -209,16 +245,20 @@ def process(
     "--interval", default=5.0, help="Polling interval in seconds (for watch mode)"
 )
 @click.option("--once", is_flag=True, help="Process all pending files, then exit (default: watch forever)")
+@click.option("--recent/--all", default=True, help="Only process recently added files (default: --recent). Use --all to process everything in inbox.")
 def watch(
     obsidian_vault: Path | None,
     ollama_model: str | None,
     interval: float,
     once: bool,
+    recent: bool,
 ):
     """Watch inbox/ and auto-process new voice memos.
 
     Without --once: runs forever, polling every N seconds.
     With --once: processes all pending files, reports results, exits.
+    With --recent (default): only processes files added since last check.
+    With --all: reprocesses everything in inbox/ (useful for recovery).
     """
     # Resolve from config if not specified
     if obsidian_vault is None:
@@ -234,9 +274,9 @@ def watch(
     )
 
     if once:
-        orch.run_once()
+        orch.run_once(recent_only=recent)
     else:
-        orch.watch(poll_interval=interval)
+        orch.watch(poll_interval=interval, recent_only=recent)
 
 
 @cli.command()
@@ -388,18 +428,74 @@ def trends(
         raise SystemExit(1)
 
 
+@cli.command(name="split")
+@click.argument("transcript_file", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--ollama-model", default=None, help="Ollama model for splitting"
+)
+@click.option(
+    "--ollama-host", default=None, help="Ollama API host"
+)
+@click.option(
+    "--output-dir", default="pipeline", type=click.Path(path_type=Path),
+    help="Directory for pipeline artifacts"
+)
+def split_cmd(
+    transcript_file: Path,
+    ollama_model: str | None,
+    ollama_host: str | None,
+    output_dir: Path,
+):
+    """Split a multi-hive transcript into per-hive artifacts.
+
+    Takes a RawTranscript JSON (from 'buzzboard transcribe') and uses
+    Ollama to detect individual hive segments. Outputs one RawTranscript
+    JSON artifact per hive found.
+
+    Example:
+        buzzboard transcribe inbox/recording.m4a
+        buzzboard split pipeline/rawtranscript_abc123.json
+    """
+    if ollama_model is None:
+        ollama_model = cfg.OLLAMA_MODEL
+    if ollama_host is None:
+        ollama_host = cfg.OLLAMA_HOST
+
+    click.echo(f"🔀 BuzzBoard HiveSplitter\n")
+
+    try:
+        splitter = HiveSplitterAgent(
+            ollama_model=ollama_model,
+            ollama_host=ollama_host,
+            pipeline_dir=output_dir,
+        )
+        hive_paths = splitter.process(transcript_file)
+
+        click.echo(f"\n✅ Split into {len(hive_paths)} hive(s):")
+        for p in hive_paths:
+            click.echo(f"   📄 {p}")
+
+    except RuntimeError as e:
+        click.echo(f"❌ HiveSplitter failed: {e}", err=True)
+        raise SystemExit(1)
+    except ValueError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(1)
+
+
 @cli.command()
 def status():
     """Show BuzzBoard pipeline status."""
     click.echo("🐝 BuzzBoard Status")
     click.echo("=" * 40)
-    click.echo("  Pipeline:  Transcriber ✅  |  Editor ✅  |  Extractor ✅  |  Storage ✅  |  Trend ✅")
-    click.echo("  Phase 7 complete — full pipeline + trend analysis.")
+    click.echo("  Pipeline:  Transcriber ✅  |  Splitter ✅  |  Editor ✅  |  Extractor ✅  |  Storage ✅  |  Trend ✅")
+    click.echo("  Phase 8 — multi-hive support + timestamp filtering.")
     click.echo()
     click.echo("  Quick start:")
-    click.echo("    buzzboard process inbox/H07_2026-06-06.m4a")
+    click.echo("    buzzboard process inbox/H07_2026-06-06.m4a     # single-hive")
+    click.echo("    buzzboard process inbox/Neue\\ Aufnahme\\ 2.m4a  # multi-hive")
     click.echo("    buzzboard trends H07")
-    click.echo("    buzzboard watch --once")
+    click.echo("    buzzboard watch --once --recent")
     click.echo("    buzzboard board")
     click.echo("    buzzboard config")
     click.echo()

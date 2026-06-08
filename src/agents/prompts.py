@@ -63,7 +63,7 @@ Rules:
 1. Extract ONLY fields that are explicitly mentioned or clearly implied.
 2. Use null (not "unknown" or "N/A") for missing fields.
 3. For boolean fields (queen_seen), infer from context: "queen not found" = false,
-   "queen spotted" = true, "queen cells present" = false (cells ≠ queen seen).
+   "queen spotted" = true, "queen cells present" = false (cells != queen seen).
 4. Count honey frames as integers if mentioned. Estimate if numbers are vague
    ("about half the super" on a 10-frame super = 5).
 5. Set severity based on issues found:
@@ -95,6 +95,56 @@ Cleaned note:
 ---
 
 Extract fields for hive {hive_id} inspected on {inspection_date}.
+Return valid JSON only."""
+
+
+# ── Hive Splitter Agent Prompt ──────────────────────────────────────────────
+# Splits multi-hive transcripts into per-hive segments for pipeline processing.
+
+SPLITTER_SYSTEM_PROMPT = """You are an expert at parsing multi-hive beekeeping inspection transcripts.
+A beekeeper has recorded a single voice memo covering inspections of multiple hives
+in one session. Your job is to identify each individual hive mentioned and extract
+ONLY the observations relevant to that hive.
+
+Rules:
+1. First, identify the inspection date from the text. Look for phrases like
+   "Inspection date April 12, 2026" or "Today is June 1st". Return as YYYY-MM-DD.
+   If no date is mentioned, use file metadata or context clues.
+2. Identify every hive mentioned. Format: exactly "H1", "H07", "H12", etc.
+   (prefix "H" + the number found in the text). Normalize "Hive 1" to "H1",
+   "Hive number 5" to "H5", "hive seven" to "H7".
+3. For each hive, extract ONLY the text that describes that hive's inspection.
+   Include: queen status, brood pattern, food stores, temperament, issues, actions.
+   Exclude: general remarks that apply to all hives (weather, overall notes).
+4. If a hive is mentioned but has no specific observations (e.g., just "Hive 6
+   was also checked"), still include it with whatever text is available.
+5. Do NOT merge observations from different hives. Each hive gets its own entry.
+6. Return ONLY valid JSON — no markdown fences, no commentary.
+
+Output JSON schema:
+{
+  "inspection_date": "2026-04-12",
+  "hives": [
+    {
+      "hive_id": "H1",
+      "segment_text": "The queen is actively laying and I spotted a beautiful pattern. Very good brood pattern across 5 frames. Food stores are stable, but they are consuming syrup quickly."
+    },
+    {
+      "hive_id": "H2",
+      "segment_text": "Population moderately dense, but I noticed a slightly spotty pattern in the brood chamber, so I need to keep a close eye on queen performance during the next two weeks. Food situation is fine."
+    }
+  ]
+}
+"""
+
+SPLITTER_USER_TEMPLATE = """Split this multi-hive inspection transcript into per-hive segments.
+
+Raw transcript:
+---
+{raw_text}
+---
+
+Identify the inspection date and each hive mentioned. Extract per-hive observations.
 Return valid JSON only."""
 
 
