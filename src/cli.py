@@ -19,8 +19,10 @@ from .agents.transcriber import TranscriberAgent
 from .agents.editor import EditorAgent
 from .agents.extractor import ExtractorAgent
 from .agents.storage import StorageAgent
+from .agents.trend import TrendAgent
 from .orchestrator import Orchestrator
 from .db.kanban import KanbanBoard
+from .schema import TrendReport, read_artifact
 from . import config as cfg
 
 
@@ -294,15 +296,109 @@ def events(task_id: str, db: str | None):
 
 
 @cli.command()
+@click.argument("hive_id")
+@click.option(
+    "--obsidian-vault", default=None, type=click.Path(path_type=Path),
+    help="Path to Obsidian vault (default: $BUZZBOARD_OBSIDIAN_VAULT)"
+)
+@click.option(
+    "--ollama-model", default=None, help="Ollama model for trend analysis"
+)
+@click.option(
+    "--ollama-host", default=None, help="Ollama API host"
+)
+@click.option(
+    "--output-dir", default="pipeline", type=click.Path(path_type=Path),
+    help="Directory for pipeline artifacts"
+)
+def trends(
+    hive_id: str,
+    obsidian_vault: Path | None,
+    ollama_model: str | None,
+    ollama_host: str | None,
+    output_dir: Path,
+):
+    """Analyze historical inspection trends for a hive.
+
+    Reads all inspection records for HIVE_ID from your Obsidian vault
+    (or a specified directory) and produces a trend report identifying
+    patterns, risks, and recommendations.
+
+    Example:
+        buzzboard trends H07
+        buzzboard trends H07 --obsidian-vault ~/Documents/Obsidian
+    """
+    # Resolve paths
+    if obsidian_vault is None:
+        obsidian_vault = cfg.OBSIDIAN_VAULT
+    if ollama_model is None:
+        ollama_model = cfg.OLLAMA_MODEL
+    if ollama_host is None:
+        ollama_host = cfg.OLLAMA_HOST
+
+    # Find the hive directory
+    if obsidian_vault:
+        hive_dir = Path(obsidian_vault) / "Hives" / hive_id
+    else:
+        hive_dir = Path(f"pipeline/{hive_id}")
+
+    if not hive_dir.exists():
+        click.echo(f"❌ Hive directory not found: {hive_dir}")
+        click.echo(f"   Make sure Obsidian vault is configured and "
+                   f"inspections have been stored for {hive_id}.")
+        raise SystemExit(1)
+
+    click.echo(f"🐝 BuzzBoard Trend Analysis: {hive_id}\n")
+
+    try:
+        agent = TrendAgent(
+            ollama_model=ollama_model,
+            ollama_host=ollama_host,
+            pipeline_dir=output_dir,
+        )
+        output_path = agent.process(hive_dir)
+        click.echo(f"\n✅ Trend report: {output_path}")
+
+        # Print summary
+        report = read_artifact(output_path, TrendReport)
+        click.echo(f"\n{'─' * 50}")
+        click.echo(f"📊 {hive_id} Trend Summary")
+        click.echo(f"{'─' * 50}")
+        click.echo(f"  Inspections: {report.inspections_analyzed}")
+        click.echo(f"  Range: {report.date_range_first} → {report.date_range_last}")
+        click.echo(f"  Severity: {report.overall_severity}")
+        if report.summary:
+            click.echo(f"\n  {report.summary}")
+        if report.mite_trajectory:
+            click.echo(f"\n  Mites: {report.mite_trajectory}")
+        if report.recurring_issues:
+            click.echo(f"\n  Recurring issues:")
+            for issue in report.recurring_issues:
+                click.echo(f"    ⚠️  {issue}")
+        if report.recommendations:
+            click.echo(f"\n  Recommendations:")
+            for rec in report.recommendations:
+                click.echo(f"    → {rec}")
+
+    except FileNotFoundError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(1)
+    except RuntimeError as e:
+        click.echo(f"❌ {e}", err=True)
+        raise SystemExit(1)
+
+
+@cli.command()
 def status():
     """Show BuzzBoard pipeline status."""
     click.echo("🐝 BuzzBoard Status")
     click.echo("=" * 40)
-    click.echo("  Pipeline:  Transcriber ✅  |  Editor ✅  |  Extractor ✅  |  Storage ✅")
-    click.echo("  Phase 3 complete — full pipeline + Kanban + file watcher.")
+    click.echo("  Pipeline:  Transcriber ✅  |  Editor ✅  |  Extractor ✅  |  Storage ✅  |  Trend ✅")
+    click.echo("  Phase 7 complete — full pipeline + trend analysis.")
     click.echo()
     click.echo("  Quick start:")
     click.echo("    buzzboard process inbox/H07_2026-06-06.m4a")
+    click.echo("    buzzboard trends H07")
     click.echo("    buzzboard watch --once")
     click.echo("    buzzboard board")
     click.echo("    buzzboard config")

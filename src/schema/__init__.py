@@ -97,6 +97,38 @@ class StructuredRecord(BaseModel):
     extracted_at: datetime = Field(default_factory=datetime.now)
 
 
+class TrendReport(BaseModel):
+    """Agent 5 (Trend) output: pattern analysis across multiple inspections."""
+
+    hive_id: str
+    generated_at: datetime = Field(default_factory=datetime.now)
+    inspections_analyzed: int = Field(default=0)
+    date_range_first: Optional[date] = Field(default=None)
+    date_range_last: Optional[date] = Field(default=None)
+    summary: str = Field(default="", description="Overall colony health narrative")
+    queen_performance: str = Field(
+        default="", description="Analysis of queen sightings and laying patterns"
+    )
+    mite_trajectory: str = Field(
+        default="", description="Mite count trend: rising / falling / stable"
+    )
+    honey_trend: str = Field(
+        default="", description="Honey stores trajectory over inspections"
+    )
+    recurring_issues: list[str] = Field(
+        default_factory=list, description="Problems that appear in multiple inspections"
+    )
+    swarm_risk: str = Field(
+        default="", description="Swarm risk assessment with rationale"
+    )
+    recommendations: list[str] = Field(
+        default_factory=list, description="Actionable recommendations from trend analysis"
+    )
+    overall_severity: str = Field(
+        default="normal", description="normal | attention | urgent"
+    )
+
+
 class PipelineArtifact(BaseModel):
     """Generic container for tracking artifacts through the pipeline."""
 
