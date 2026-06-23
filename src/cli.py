@@ -101,8 +101,8 @@ def cli():
     help="Speech-to-text backend (default: whisper)"
 )
 @click.option(
-    "--model", default="base",
-    help="Whisper model size: tiny, base, small, medium, large"
+    "--model", default="medium",
+    help="Whisper model size: tiny, base, small, medium, large (default: medium)"
 )
 @click.option(
     "--output-dir", default="pipeline", type=click.Path(path_type=Path),
@@ -137,7 +137,7 @@ def transcribe(
 @cli.command()
 @click.argument("audio_file", type=click.Path(exists=True, path_type=Path))
 @click.option("--backend", default="whisper", type=click.Choice(["whisper", "whisper-cpp"]))
-@click.option("--whisper-model", default="base", help="Whisper model size")
+@click.option("--whisper-model", default="medium", help="Whisper model size (default: medium)")
 @click.option("--output-dir", default="pipeline", type=click.Path(path_type=Path))
 @click.option(
     "--ollama-model", default="llama3.1:8b",
