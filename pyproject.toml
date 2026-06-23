@@ -55,6 +55,9 @@ buzzboard = "src.cli:cli"
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/dashboard/static" = "src/dashboard/static"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🐝 BuzzBoard Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- Header / brand + compact stats -->
+  <header class="bb-header">
+    <div>
+      <span class="bb-logo">🐝 BuzzBoard</span>
+      <span class="bb-logo-sub">Kanban Dashboard</span>
+    </div>
+    <div class="bb-spacer"></div>
+    <div class="bb-stats" id="stats"></div>
+  </header>
+
+  <!-- Filter row -->
+  <div class="bb-filters">
+    <div class="bb-filter">
+      <label for="search">Search</label>
+      <input type="text" id="search" placeholder="Filter by hive / id / error…">
+    </div>
+    <div class="bb-filter">
+      <label for="stage-filter">Stage</label>
+      <select id="stage-filter"></select>
+    </div>
+    <button class="bb-btn bb-btn-primary" id="refresh-btn" type="button">Refresh now</button>
+    <button class="bb-btn" id="clear-btn" type="button">Clear filters</button>
+  </div>
+
+  <!-- Board (columns) -->
+  <main class="bb-board" id="board"></main>
+
+  <!-- Footer with refresh countdown + live indicator -->
+  <footer class="bb-footer">
+    <span><span class="bb-footer-pulse" id="footer-pulse"></span>Auto-refresh in <span id="countdown">—</span></span>
+    <span style="flex:1"></span>
+    <span>BuzzBoard Kanban · localhost:8099</span>
+  </footer>
+
+  <!-- Drawer (task detail) — populated by app.js. Hidden until a card is clicked. -->
+  <div id="drawer-shade" hidden></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
