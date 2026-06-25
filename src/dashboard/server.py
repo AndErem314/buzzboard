@@ -16,7 +16,6 @@ iterate on the UI without touching Python.
 
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -105,25 +104,9 @@ def dashboard():
 
 # ── Server runner ─────────────────────────────────────────────────────────
 
-def run_server(
-    host: str = "0.0.0.0",
-    port: int = 8099,
-    reload: bool = False,
-    watch: bool = False,
-    watch_kwargs: dict | None = None,
-):
-    """Start the dashboard server (blocking).
-
-    Args:
-        watch: If True, start the orchestrator watcher in a background thread.
-        watch_kwargs: Extra kwargs forwarded to Orchestrator (e.g. ollama_model,
-            obsidian_vault, whisper_model, poll_interval, recent_only).
-    """
-    if watch:
-        _start_watcher(**(watch_kwargs or {}))
-
+def run_server(host: str = "0.0.0.0", port: int = 8099, reload: bool = False):
+    """Start the dashboard server (blocking)."""
     import uvicorn
-
     uvicorn.run(
         "src.dashboard.server:app",
         host=host,
@@ -131,37 +114,3 @@ def run_server(
         reload=reload,
         log_level="info",
     )
-
-
-def _start_watcher(
-    obsidian_vault: Path | None = None,
-    poll_interval: float = 5.0,
-    **orch_kwargs,
-):
-    """Launch the orchestrator watcher in a daemon background thread.
-
-    The orchestrator runs independently — the dashboard reads the same
-    Kanban DB, so UI updates appear automatically as tasks progress.
-    """
-    from ..orchestrator import Orchestrator
-
-    orch = Orchestrator(
-        inbox_dir=str(cfg.INBOX_DIR),
-        obsidian_vault=obsidian_vault if obsidian_vault else cfg.OBSIDIAN_VAULT,
-        ollama_model=orch_kwargs.get("ollama_model", cfg.OLLAMA_MODEL),
-        pipeline_dir=str(cfg.PIPELINE_DIR),
-        kanban_db=str(cfg.KANBAN_DB),
-        whisper_backend=orch_kwargs.get("whisper_backend", cfg.WHISPER_BACKEND),
-        whisper_model=orch_kwargs.get("whisper_model", cfg.WHISPER_MODEL),
-    )
-
-    def _watch_loop():
-        # Small delay so the dashboard prints its banner first
-        import time
-
-        time.sleep(1.5)
-        print("\n👁️  Pipeline watcher started — processing inbox/ ...\n")
-        orch.run_once(recent_only=orch_kwargs.get("recent_only", True))
-
-    thread = threading.Thread(target=_watch_loop, daemon=True)
-    thread.start()

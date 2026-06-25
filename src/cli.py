@@ -241,56 +241,24 @@ def process(
 @click.option(
     "--ollama-model", default=None, help="Ollama model"
 )
-@click.option("--interval", default=5.0, help="Polling interval in seconds (for watch mode)")
-@click.option("--once", is_flag=True, help="Process all pending files, then exit (default: watch forever)")
-@click.option("--recent/--all", default=True, help="Only process recently added files (default: --recent). Use --all to process everything in inbox.")
-@click.option(
-    "--no-dashboard", is_flag=True,
-    help="Disable auto-starting the web dashboard (historical behavior)."
-)
-@click.option(
-    "--port", default=8099, help="Port for the auto-started web dashboard."
-)
+@click.option("--interval", default=5.0, help="Polling interval in seconds")
+@click.option("--once", is_flag=True, help="Process pending files then exit")
+@click.option("--recent/--all", default=True, help="Only recent files vs everything")
 def watch(
     obsidian_vault: Path | None,
     ollama_model: str | None,
     interval: float,
     once: bool,
     recent: bool,
-    no_dashboard: bool,
-    port: int,
 ):
-    """Watch inbox/ and auto-process new voice memos.
+    """Watch inbox/ and auto-process new voice memos (CLI only).
 
-    The web dashboard auto-starts so you can monitor progress in the browser.
-    Use --no-dashboard to disable and run CLI-only.
-
-    Without --once: runs forever, polling every N seconds.
-    With --once: processes all pending files, reports results, exits.
-    With --recent (default): only processes files added since last check.
-    With --all: reprocesses everything in inbox/ (useful for recovery).
+    For the full experience (dashboard + pipeline), use 'buzzboard start'.
     """
-    # Resolve from config if not specified
     if obsidian_vault is None:
         obsidian_vault = cfg.OBSIDIAN_VAULT
     if ollama_model is None:
         ollama_model = cfg.OLLAMA_MODEL
-
-    # Start the dashboard in a background thread before the blocking watch loop
-    if not no_dashboard:
-        from .dashboard.server import run_server as start_dashboard
-        import threading
-        click.echo(f"🐝 Dashboard → http://localhost:{port}")
-        _dash_started = threading.Event()
-
-        def _launch_dashboard():
-            _dash_started.set()
-            start_dashboard(host="127.0.0.1", port=port)
-
-        threading.Thread(target=_launch_dashboard, daemon=True).start()
-        # Give the server a moment to bind the port
-        import time
-        _dash_started.wait(timeout=2.0)
 
     orch = Orchestrator(
         inbox_dir=str(cfg.INBOX_DIR),
@@ -539,65 +507,53 @@ def config_cmd():
         click.echo(f"  💡 Create a .env file to customize (see .env.example)")
 
 
-@cli.command(name="dashboard", short_help="Web dashboard (use --watch to also start the pipeline)")
-@click.option("--host", default="0.0.0.0", help="Host to bind to")
-@click.option("--port", default=8099, help="Port to listen on")
-@click.option("--reload", is_flag=True, help="Enable auto-reload (dev mode)")
-@click.option(
-    "--watch", is_flag=True,
-    help="Also start the pipeline watcher — processes inbox/ automatically."
-)
-@click.option(
-    "--all", "process_all", is_flag=True,
-    help="With --watch: process ALL files in inbox/, not just recent ones."
-)
-@click.option(
-    "--poll-interval", default=5.0, type=float,
-    help="With --watch: polling interval in seconds for continuous mode."
-)
-def dashboard(
-    host: str,
-    port: int,
-    reload: bool,
-    watch: bool,
-    process_all: bool,
-    poll_interval: float,
-):
-    """Start the web dashboard (FastAPI + Uvicorn).
+@cli.command()
+@click.option("--port", default=8099, help="Port for the web dashboard")
+@click.option("--host", default="127.0.0.1", help="Host to bind to")
+def start(port: int, host: str):
+    """Start the full BuzzBoard app: dashboard + pipeline watcher.
 
-    Opens http://localhost:8099 — Kanban board with live updates.
+    Single command — opens the web UI at http://localhost:{port}
+    and begins processing any voice memos in inbox/.
 
-    Add --watch to also launch the pipeline watcher in the background.
-    This is the recommended one-command setup: the dashboard + the
-    processor run together, sharing the same Kanban DB.
-
-    Without --watch, the dashboard is read-only (viewer only).
-
-    Press Ctrl+C to stop.
+    Press Ctrl+C to stop everything.
     """
-    from .dashboard.server import run_server
-    click.echo(f"🐝 BuzzBoard Dashboard → http://{host}:{port}")
-    if watch:
-        if process_all:
-            click.echo("   Pipeline watcher: enabled (processing ALL files)")
-        else:
-            click.echo("   Pipeline watcher: enabled (recent files only)")
-    click.echo("   Press Ctrl+C to stop.\n")
+    import threading
 
-    watch_kwargs = {
-        "recent_only": not process_all,
-        "poll_interval": poll_interval,
-    }
+    from .dashboard.server import run_server as start_dashboard
 
-    # Pass config overrides from .env that may differ on this machine
-    if cfg.OLLAMA_MODEL:
-        watch_kwargs["ollama_model"] = cfg.OLLAMA_MODEL
-    if cfg.WHISPER_MODEL:
-        watch_kwargs["whisper_model"] = cfg.WHISPER_MODEL
-    if cfg.WHISPER_BACKEND:
-        watch_kwargs["whisper_backend"] = cfg.WHISPER_BACKEND
+    resolved_vault = cfg.OBSIDIAN_VAULT
+    resolved_model = cfg.OLLAMA_MODEL
 
-    run_server(host=host, port=port, reload=reload, watch=watch, watch_kwargs=watch_kwargs)
+    # 1) Dashboard in a daemon thread
+    click.echo(f"🐝 BuzzBoard → http://{host}:{port}")
+    click.echo("   Dashboard + pipeline watcher — Ctrl+C to stop.\n")
+
+    _server_ready = threading.Event()
+
+    def _launch_dashboard():
+        _server_ready.set()
+        start_dashboard(host=host, port=port)
+
+    threading.Thread(target=_launch_dashboard, daemon=True).start()
+    _server_ready.wait(timeout=3.0)
+
+    # 2) Run pipeline in main thread (blocks until Ctrl+C)
+    orch = Orchestrator(
+        inbox_dir=str(cfg.INBOX_DIR),
+        obsidian_vault=resolved_vault,
+        ollama_model=resolved_model,
+        pipeline_dir=str(cfg.PIPELINE_DIR),
+        whisper_backend=cfg.WHISPER_BACKEND,
+        whisper_model=cfg.WHISPER_MODEL,
+    )
+
+    # Process everything that's waiting, then keep watching
+    orch.run_once(recent_only=False)
+    click.echo()
+
+    # 3) Enter the continuous watch loop
+    orch.watch(poll_interval=5.0, recent_only=True)
 
 
 if __name__ == "__main__":

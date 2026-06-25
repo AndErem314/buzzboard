@@ -89,7 +89,7 @@ buzzboard/
 │   │       ├── index.html       # Dashboard scaffold
 │   │       ├── style.css        # Dark-teal theme + design tokens
 │   │       └── app.js           # Vanilla-JS controller (no build step)
-│   ├── cli.py                   # Click CLI — buzzboard process/watch/trends/board/dashboard/…
+│   ├── cli.py                   # Click CLI — buzzboard start/process/watch/trends/board/…
 │   └── config.py                # .env loader with typed config
 ├── tests/
 │   ├── test_agents.py           # Editor, Extractor, Trend, Splitter agents
@@ -123,22 +123,21 @@ mkdir -p inbox archive pipeline
 buzzboard status        # shows pipeline + config summary
 buzzboard config        # shows resolved paths and model choices
 
-# 6. Drop a voice memo into inbox/ and process it
+# 6. Drop voice memos into inbox/ and start everything
 cp ~/Desktop/H07_2026-06-06.m4a inbox/
-buzzboard process inbox/H07_2026-06-06.m4a
-
-# 7. Or auto-process everything new in inbox/ (one-shot)
-buzzboard watch --once --recent
-
-# 8. Watch the pipeline live
-buzzboard dashboard     # open http://localhost:8099
+buzzboard start          # → http://localhost:8099 with live Kanban + pipeline
 ```
+
+That's it — one command starts the web dashboard **and** the pipeline watcher. Drop new voice memos into `inbox/` while it's running and they'll be processed automatically.
 
 > **Note:** the `inbox/` and `archive/` directories are git-ignored — BuzzBoard creates them on first run, but creating them explicitly avoids the first-run warning.
 
 ## CLI Reference
 
 ```bash
+# Start everything: dashboard + pipeline watcher (the only command you need)
+buzzboard start [--host 127.0.0.1] [--port 8099]
+
 # Full pipeline on a single file (auto-detects multi-hive)
 buzzboard process inbox/H07_2026-06-06.m4a [--obsidian-vault ~/Documents/Obsidian]
 buzzboard process "inbox/Neue Aufnahme 2.m4a"
@@ -149,7 +148,7 @@ buzzboard transcribe inbox/recording.m4a
 # Split a multi-hive transcript into per-hive artifacts
 buzzboard split pipeline/rawtranscript_abc123.json
 
-# Watch inbox/ and auto-process new files (--recent: only new files, --all: everything)
+# Watch inbox/ and auto-process new files (CLI only, no dashboard)
 buzzboard watch [--once] [--recent|--all] [--obsidian-vault ~/Documents/Obsidian]
 
 # Analyze historical trends for a hive
@@ -160,9 +159,6 @@ buzzboard board
 
 # View event log for a specific task
 buzzboard events H07_2026-06-06
-
-# Start web dashboard (http://localhost:8099)
-buzzboard dashboard [--host 0.0.0.0] [--port 8099] [--reload]
 
 # Show current configuration + pipeline status
 buzzboard status
