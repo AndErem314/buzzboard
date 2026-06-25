@@ -2,11 +2,13 @@
 BuzzBoard CLI — the single entry point for the multi-agent pipeline.
 
 Usage:
-    buzzboard transcribe inbox/H07_2026-06-06.m4a    # Voice → text only
-    buzzboard process inbox/H07_2026-06-06.m4a        # Full pipeline
-    buzzboard watch                                     # Auto-process inbox/
-    buzzboard status                                    # Show Kanban board
-    buzzboard board                                     # Kanban board detail
+    buzzboard start                              # Dashboard + pipeline watcher
+    buzzboard process inbox/recording.m4a        # Full pipeline on one file
+    buzzboard trends H07                         # Historical analysis
+    buzzboard board                              # Kanban board
+    buzzboard events H07_2026-06-06              # Event log for a task
+    buzzboard status                             # Pipeline status
+    buzzboard config                             # Current configuration
 """
 
 from __future__ import annotations
@@ -116,8 +118,8 @@ def transcribe(
 ):
     """Transcribe a single voice memo to raw text.
 
-    Works with both single-hive (H07_YYYY-MM-DD.m4a) and generic filenames.
-    Generic filenames are flagged as multi-hive — use 'buzzboard split' next.
+    For single-hive files, use 'buzzboard process' to run the full pipeline.
+    For multi-hive recordings, 'buzzboard process' auto-detects and splits them.
     """
     agent = TranscriberAgent(
         backend=backend,
@@ -128,7 +130,7 @@ def transcribe(
         output_path, is_multi = agent.process(audio_file)
         click.echo(f"\n✅ Done: {output_path}")
         if is_multi:
-            click.echo(f"🔀 Multi-hive detected — run 'buzzboard split {output_path}'")
+            click.echo(f"🔀 Multi-hive detected — use 'buzzboard process' for the full pipeline")
     except FileNotFoundError as e:
         click.echo(f"❌ {e}", err=True)
         raise SystemExit(1)
@@ -231,46 +233,6 @@ def process(
     click.echo(f"{'═' * 50}")
     click.echo(f"  Raw transcript:  {raw_path}")
     click.echo()
-
-
-@cli.command()
-@click.option(
-    "--obsidian-vault", default=None, type=click.Path(path_type=Path),
-    help="Path to Obsidian vault for Storage agent"
-)
-@click.option(
-    "--ollama-model", default=None, help="Ollama model"
-)
-@click.option("--interval", default=5.0, help="Polling interval in seconds")
-@click.option("--once", is_flag=True, help="Process pending files then exit")
-@click.option("--recent/--all", default=True, help="Only recent files vs everything")
-def watch(
-    obsidian_vault: Path | None,
-    ollama_model: str | None,
-    interval: float,
-    once: bool,
-    recent: bool,
-):
-    """Watch inbox/ and auto-process new voice memos (CLI only).
-
-    For the full experience (dashboard + pipeline), use 'buzzboard start'.
-    """
-    if obsidian_vault is None:
-        obsidian_vault = cfg.OBSIDIAN_VAULT
-    if ollama_model is None:
-        ollama_model = cfg.OLLAMA_MODEL
-
-    orch = Orchestrator(
-        inbox_dir=str(cfg.INBOX_DIR),
-        obsidian_vault=obsidian_vault,
-        ollama_model=ollama_model,
-        pipeline_dir=str(cfg.PIPELINE_DIR),
-    )
-
-    if once:
-        orch.run_once(recent_only=recent)
-    else:
-        orch.watch(poll_interval=interval, recent_only=recent)
 
 
 @cli.command()
@@ -422,61 +384,6 @@ def trends(
         raise SystemExit(1)
 
 
-@cli.command(name="split")
-@click.argument("transcript_file", type=click.Path(exists=True, path_type=Path))
-@click.option(
-    "--ollama-model", default=None, help="Ollama model for splitting"
-)
-@click.option(
-    "--ollama-host", default=None, help="Ollama API host"
-)
-@click.option(
-    "--output-dir", default="pipeline", type=click.Path(path_type=Path),
-    help="Directory for pipeline artifacts"
-)
-def split_cmd(
-    transcript_file: Path,
-    ollama_model: str | None,
-    ollama_host: str | None,
-    output_dir: Path,
-):
-    """Split a multi-hive transcript into per-hive artifacts.
-
-    Takes a RawTranscript JSON (from 'buzzboard transcribe') and uses
-    Ollama to detect individual hive segments. Outputs one RawTranscript
-    JSON artifact per hive found.
-
-    Example:
-        buzzboard transcribe inbox/recording.m4a
-        buzzboard split pipeline/rawtranscript_abc123.json
-    """
-    if ollama_model is None:
-        ollama_model = cfg.OLLAMA_MODEL
-    if ollama_host is None:
-        ollama_host = cfg.OLLAMA_HOST
-
-    click.echo(f"🔀 BuzzBoard HiveSplitter\n")
-
-    try:
-        splitter = HiveSplitterAgent(
-            ollama_model=ollama_model,
-            ollama_host=ollama_host,
-            pipeline_dir=output_dir,
-        )
-        hive_paths = splitter.process(transcript_file)
-
-        click.echo(f"\n✅ Split into {len(hive_paths)} hive(s):")
-        for p in hive_paths:
-            click.echo(f"   📄 {p}")
-
-    except RuntimeError as e:
-        click.echo(f"❌ HiveSplitter failed: {e}", err=True)
-        raise SystemExit(1)
-    except ValueError as e:
-        click.echo(f"❌ {e}", err=True)
-        raise SystemExit(1)
-
-
 @cli.command()
 def status():
     """Show BuzzBoard pipeline status."""
@@ -486,10 +393,9 @@ def status():
     click.echo("  Phase 8 — multi-hive support + timestamp filtering.")
     click.echo()
     click.echo("  Quick start:")
-    click.echo("    buzzboard process inbox/H07_2026-06-06.m4a     # single-hive")
-    click.echo("    buzzboard process inbox/Neue\\ Aufnahme\\ 2.m4a  # multi-hive")
+    click.echo("    buzzboard start                                  # Dashboard + full pipeline")
+    click.echo("    buzzboard process inbox/recording.m4a            # Process a single file")
     click.echo("    buzzboard trends H07")
-    click.echo("    buzzboard watch --once --recent")
     click.echo("    buzzboard board")
     click.echo("    buzzboard config")
     click.echo()

@@ -135,32 +135,23 @@ That's it — one command starts the web dashboard **and** the pipeline watcher.
 ## CLI Reference
 
 ```bash
-# Start everything: dashboard + pipeline watcher (the only command you need)
+# Start everything: dashboard + pipeline watcher (daily use)
 buzzboard start [--host 127.0.0.1] [--port 8099]
 
-# Full pipeline on a single file (auto-detects multi-hive)
-buzzboard process inbox/H07_2026-06-06.m4a [--obsidian-vault ~/Documents/Obsidian]
-buzzboard process "inbox/Neue Aufnahme 2.m4a"
+# Full pipeline on a single file (auto-detects multi-hive, auto-splits)
+buzzboard process inbox/recording.m4a [--obsidian-vault ~/Documents/Obsidian]
 
-# Transcribe only (without further processing)
+# Transcribe only — just the raw text, no LLM pipeline
 buzzboard transcribe inbox/recording.m4a
 
-# Split a multi-hive transcript into per-hive artifacts
-buzzboard split pipeline/rawtranscript_abc123.json
-
-# Watch inbox/ and auto-process new files (CLI only, no dashboard)
-buzzboard watch [--once] [--recent|--all] [--obsidian-vault ~/Documents/Obsidian]
-
-# Analyze historical trends for a hive
+# Historical trend analysis for a hive
 buzzboard trends H07 [--obsidian-vault ~/Documents/Obsidian]
 
-# View Kanban board with task status
+# Terminal kanban board and event log
 buzzboard board
-
-# View event log for a specific task
 buzzboard events H07_2026-06-06
 
-# Show current configuration + pipeline status
+# Diagnostics
 buzzboard status
 buzzboard config
 ```

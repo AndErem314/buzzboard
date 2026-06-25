@@ -89,6 +89,21 @@ def api_hive(hive_id: str):
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    """Silence the browser's automatic favicon request — no 404 noise."""
+    from fastapi.responses import Response
+    # Tiny bee emoji as inline SVG
+    return Response(
+        content=(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+            '<text y="80" font-size="80">🐝</text>'
+            "</svg>"
+        ),
+        media_type="image/svg+xml",
+    )
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     """Serve the Kanban dashboard HTML from disk."""
