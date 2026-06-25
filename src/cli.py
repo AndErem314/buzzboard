@@ -513,20 +513,65 @@ def config_cmd():
         click.echo(f"  💡 Create a .env file to customize (see .env.example)")
 
 
-@cli.command()
+@cli.command(name="dashboard", short_help="Web dashboard (use --watch to also start the pipeline)")
 @click.option("--host", default="0.0.0.0", help="Host to bind to")
 @click.option("--port", default=8099, help="Port to listen on")
 @click.option("--reload", is_flag=True, help="Enable auto-reload (dev mode)")
-def dashboard(host: str, port: int, reload: bool):
+@click.option(
+    "--watch", is_flag=True,
+    help="Also start the pipeline watcher — processes inbox/ automatically."
+)
+@click.option(
+    "--all", "process_all", is_flag=True,
+    help="With --watch: process ALL files in inbox/, not just recent ones."
+)
+@click.option(
+    "--poll-interval", default=5.0, type=float,
+    help="With --watch: polling interval in seconds for continuous mode."
+)
+def dashboard(
+    host: str,
+    port: int,
+    reload: bool,
+    watch: bool,
+    process_all: bool,
+    poll_interval: float,
+):
     """Start the web dashboard (FastAPI + Uvicorn).
 
     Opens http://localhost:8099 — Kanban board with live updates.
+
+    Add --watch to also launch the pipeline watcher in the background.
+    This is the recommended one-command setup: the dashboard + the
+    processor run together, sharing the same Kanban DB.
+
+    Without --watch, the dashboard is read-only (viewer only).
+
     Press Ctrl+C to stop.
     """
     from .dashboard.server import run_server
     click.echo(f"🐝 BuzzBoard Dashboard → http://{host}:{port}")
+    if watch:
+        if process_all:
+            click.echo("   Pipeline watcher: enabled (processing ALL files)")
+        else:
+            click.echo("   Pipeline watcher: enabled (recent files only)")
     click.echo("   Press Ctrl+C to stop.\n")
-    run_server(host=host, port=port, reload=reload)
+
+    watch_kwargs = {
+        "recent_only": not process_all,
+        "poll_interval": poll_interval,
+    }
+
+    # Pass config overrides from .env that may differ on this machine
+    if cfg.OLLAMA_MODEL:
+        watch_kwargs["ollama_model"] = cfg.OLLAMA_MODEL
+    if cfg.WHISPER_MODEL:
+        watch_kwargs["whisper_model"] = cfg.WHISPER_MODEL
+    if cfg.WHISPER_BACKEND:
+        watch_kwargs["whisper_backend"] = cfg.WHISPER_BACKEND
+
+    run_server(host=host, port=port, reload=reload, watch=watch, watch_kwargs=watch_kwargs)
 
 
 if __name__ == "__main__":
