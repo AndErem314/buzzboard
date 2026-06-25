@@ -158,6 +158,13 @@ class Orchestrator:
         print(f"📥 {audio_path.name}")
         print(f"{'─' * 66}")
 
+        # Create a file-level tracking task so the dashboard shows progress
+        # during the long Whisper phase (before we know hive IDs).
+        # Per-hive tasks are created after the splitter in _process_single_hive.
+        file_task_id = f"file:{audio_path.name}"
+        self.board.create_task(file_task_id, "—", audio_path.name)
+        self.board.move_to(file_task_id, "transcribing")
+
         # ── Stage 1: Transcribe (always) ────────────────────────────────
         try:
             transcriber = TranscriberAgent(
@@ -168,14 +175,20 @@ class Orchestrator:
             raw_path, is_multi_hive = transcriber.process(audio_path)
         except FileNotFoundError as e:
             print(f"  ❌ Transcriber failed: {e}")
+            self.board.move_to(file_task_id, "failed")
             self._processed.add(audio_path.name)
             return [{"file": audio_path.name, "status": "skipped", "error": str(e)}]
 
         # ── Branch: multi-hive or single-hive? ──────────────────────────
         if is_multi_hive:
-            return self._process_multi_hive(audio_path, raw_path)
+            self.board.move_to(file_task_id, "editing")  # splitting is fast, show as editing
+            results = self._process_multi_hive(audio_path, raw_path)
+            self.board.move_to(file_task_id, "done")
+            return results
         else:
+            self.board.move_to(file_task_id, "editing")
             result = self._process_single_hive(audio_path, raw_path)
+            self.board.move_to(file_task_id, "done")
             return [result]
 
     def _process_multi_hive(self, audio_path: Path, raw_path: Path) -> list[dict]:

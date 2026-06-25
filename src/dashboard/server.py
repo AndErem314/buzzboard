@@ -49,16 +49,30 @@ board = KanbanBoard(str(cfg.KANBAN_DB))
 
 @app.get("/api/board")
 def api_board():
-    """Return all tasks grouped by stage."""
-    tasks = board.get_all_tasks()
-    by_stage: dict[str, list[dict]] = {
-        s: [] for s in ["inbox", "transcribing", "editing", "extracting", "storing", "done", "failed"]
-    }
-    for t in tasks:
+    """Return all tasks grouped by stage — atomic snapshot, no race conditions."""
+    from ..db.kanban import STAGES
+
+    snapshot = board.get_board_snapshot()
+    by_stage: dict[str, list[dict]] = {s: [] for s in STAGES}
+    for t in snapshot["tasks"]:
         stage = t.get("stage", "inbox")
         if stage in by_stage:
             by_stage[stage].append(t)
-    return {"stages": by_stage, "stats": board.get_stats()}
+
+    # Count tasks currently in-flight (editing, extracting, storing)
+    in_flight = sum(
+        snapshot["by_stage"].get(s, 0) for s in ("editing", "extracting", "storing")
+    )
+
+    return {
+        "stages": by_stage,
+        "stats": {
+            "total_tasks": len(snapshot["tasks"]),
+            "by_stage": snapshot["by_stage"],
+            "total_events": snapshot["total_events"],
+            "in_flight": in_flight,
+        },
+    }
 
 
 @app.get("/api/tasks/{task_id}")

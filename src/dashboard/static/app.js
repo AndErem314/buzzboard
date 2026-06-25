@@ -108,12 +108,9 @@
   }
 
   async function loadBoard() {
-    const [boardData, stats] = await Promise.all([
-      fetchJSON("/api/board"),
-      fetchJSON("/api/stats"),
-    ]);
+    const boardData = await fetchJSON("/api/board");
     state.board = boardData;
-    state.stats = stats;
+    state.stats = boardData.stats;
     renderAll();
   }
 

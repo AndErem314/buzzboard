@@ -145,6 +145,34 @@ class KanbanBoard:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_board_snapshot(self) -> dict:
+        """Atomic read: tasks + stage counts in a single transaction.
+
+        Prevents race conditions where the orchestrator moves a task
+        between the SELECT and the GROUP BY, causing count mismatches
+        (e.g. header says 'Extracting: 1' but body has 0 tasks).
+        """
+        self._conn.execute("BEGIN IMMEDIATE")
+        try:
+            tasks = [
+                dict(r) for r in self._conn.execute(
+                    "SELECT * FROM tasks ORDER BY created_at DESC"
+                ).fetchall()
+            ]
+            by_stage: dict[str, int] = {}
+            for row in self._conn.execute(
+                "SELECT stage, COUNT(*) as cnt FROM tasks GROUP BY stage"
+            ).fetchall():
+                by_stage[row["stage"]] = row["cnt"]
+            total_events = self._conn.execute(
+                "SELECT COUNT(*) FROM events"
+            ).fetchone()[0]
+            self._conn.execute("COMMIT")
+        except Exception:
+            self._conn.execute("ROLLBACK")
+            raise
+        return {"tasks": tasks, "by_stage": by_stage, "total_events": total_events}
+
     def get_all_tasks(self) -> list[dict]:
         """List all tasks, newest first."""
         rows = self._conn.execute(
