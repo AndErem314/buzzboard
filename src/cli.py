@@ -241,19 +241,29 @@ def process(
 @click.option(
     "--ollama-model", default=None, help="Ollama model"
 )
-@click.option(
-    "--interval", default=5.0, help="Polling interval in seconds (for watch mode)"
-)
+@click.option("--interval", default=5.0, help="Polling interval in seconds (for watch mode)")
 @click.option("--once", is_flag=True, help="Process all pending files, then exit (default: watch forever)")
 @click.option("--recent/--all", default=True, help="Only process recently added files (default: --recent). Use --all to process everything in inbox.")
+@click.option(
+    "--no-dashboard", is_flag=True,
+    help="Disable auto-starting the web dashboard (historical behavior)."
+)
+@click.option(
+    "--port", default=8099, help="Port for the auto-started web dashboard."
+)
 def watch(
     obsidian_vault: Path | None,
     ollama_model: str | None,
     interval: float,
     once: bool,
     recent: bool,
+    no_dashboard: bool,
+    port: int,
 ):
     """Watch inbox/ and auto-process new voice memos.
+
+    The web dashboard auto-starts so you can monitor progress in the browser.
+    Use --no-dashboard to disable and run CLI-only.
 
     Without --once: runs forever, polling every N seconds.
     With --once: processes all pending files, reports results, exits.
@@ -265,6 +275,22 @@ def watch(
         obsidian_vault = cfg.OBSIDIAN_VAULT
     if ollama_model is None:
         ollama_model = cfg.OLLAMA_MODEL
+
+    # Start the dashboard in a background thread before the blocking watch loop
+    if not no_dashboard:
+        from .dashboard.server import run_server as start_dashboard
+        import threading
+        click.echo(f"🐝 Dashboard → http://localhost:{port}")
+        _dash_started = threading.Event()
+
+        def _launch_dashboard():
+            _dash_started.set()
+            start_dashboard(host="127.0.0.1", port=port)
+
+        threading.Thread(target=_launch_dashboard, daemon=True).start()
+        # Give the server a moment to bind the port
+        import time
+        _dash_started.wait(timeout=2.0)
 
     orch = Orchestrator(
         inbox_dir=str(cfg.INBOX_DIR),
