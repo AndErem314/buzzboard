@@ -24,7 +24,6 @@
     "transcribing",
     "editing",
     "extracting",
-    "storing",
     "done",
     "failed",
   ];

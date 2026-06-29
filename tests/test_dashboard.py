@@ -142,7 +142,12 @@ class TestServerModule:
 # ── Stage list parity (JS ↔ Python) ──────────────────────────────────
 
 class TestStageParity:
-    """The JS column order must match the STAGES list in db/kanban.py."""
+    """The JS column order mirrors the Python STAGES list.
+
+    The dashboard intentionally skips the "storing" column — storage
+    completes in milliseconds, making it invisible at the 10 s
+    dashboard refresh rate.  The backend still tracks the stage for
+    event-log auditing."""
 
     def test_js_stages_match_python_stages(self):
         js_content = APP_JS.read_text(encoding="utf-8")
@@ -160,9 +165,13 @@ class TestStageParity:
         assert js_match, "Could not find STAGES list in static/app.js"
         js_stages = re.findall(r'"([^"]+)"', js_match.group(1))
 
-        assert js_stages == py_stages, (
-            f"JS STAGES {js_stages!r} does not match Python STAGES {py_stages!r}. "
-            f"Update static/app.js to mirror src/db/kanban.py."
+        # JS intentionally omits "storing" (milliseconds-only stage).
+        # Everything else must match in order.
+        allowed_skip = {"storing"}
+        expected_js = [s for s in py_stages if s not in allowed_skip]
+        assert js_stages == expected_js, (
+            f"JS STAGES {js_stages!r} does not match Python STAGES {py_stages!r} "
+            f"(minus {allowed_skip}).  Update static/app.js to mirror src/db/kanban.py."
         )
 
 
@@ -222,7 +231,8 @@ class TestRoutes:
         data = resp.json()
         assert "stages" in data
         assert "stats" in data
-        # All 7 stages present, even if empty.
+        # All stages present, even if empty (backend still tracks 7 stages;
+        # the dashboard UI no longer renders the milliseconds-only "storing" column).
         for stage in ("inbox", "transcribing", "editing",
                       "extracting", "storing", "done", "failed"):
             assert stage in data["stages"]

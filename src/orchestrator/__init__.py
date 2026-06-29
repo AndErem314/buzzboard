@@ -134,10 +134,15 @@ class Orchestrator:
 
         try:
             while True:
+                # Capture the start time of this poll cycle BEFORE scanning.
+                # _find_new_files uses _last_run - 10s as its recency cutoff,
+                # so setting _last_run here ensures the next cycle's window
+                # spans back to before this cycle's processing began — even
+                # when Whisper transcription takes 90+ seconds.
+                self._last_run = datetime.now()
                 files = self._find_new_files(recent_only=recent_only)
                 for audio_path in files:
                     self._process_one(audio_path)
-                self._last_run = datetime.now()
                 time.sleep(poll_interval)
         except KeyboardInterrupt:
             print("\n👋 BuzzBoard shutting down.")
@@ -272,18 +277,30 @@ class Orchestrator:
                 ).process(cleaned_path)
             ))
 
-            # Stage 4: Storage
+            # Stage 4: Storage (runs in milliseconds — too fast for
+            # Kanban visibility.  Still log events for auditing, but skip
+            # the stage-column transition and go straight to "done".)
             if self.obsidian_vault:
                 record_paths2 = sorted(self.pipeline_dir.glob("structuredrecord_*.json"),
                                        key=lambda p: p.stat().st_mtime, reverse=True)
                 record_path = record_paths2[0] if record_paths2 else record_path
 
-                self._run_stage(task_id, "storing", "storage", lambda: (
+                storage_start = time.perf_counter()
+                self.board.log_event(task_id, "storage", "started")
+                try:
                     StorageAgent(
                         obsidian_vault=self.obsidian_vault,
                         pipeline_dir=self.pipeline_dir,
                     ).process(record_path)
-                ))
+                    storage_elapsed = (time.perf_counter() - storage_start) * 1000
+                    self.board.log_event(task_id, "storage", "completed",
+                                         duration_ms=storage_elapsed)
+                except Exception as e:
+                    storage_elapsed = (time.perf_counter() - storage_start) * 1000
+                    self.board.log_event(task_id, "storage", "failed",
+                                         duration_ms=storage_elapsed,
+                                         details=str(e)[:500])
+                    raise
 
             # Mark done
             self.board.move_to(task_id, "done")
